@@ -17,10 +17,13 @@ env/
 embeddings/*.pkl
 
 
-# Images 
+# Images  & documents
 
 Images/*
 !Images/sample/
+
+DataSet/*
+!DataSet/sampleDocs/
 
 
 # System Files
