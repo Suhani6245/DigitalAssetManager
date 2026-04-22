@@ -1,0 +1,14 @@
+name: clip_dam
+channels:
+  - defaults
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pip
+  - numpy
+  - pillow
+  - pip:
+      - torch
+      - torchvision
+      - streamlit
+      - git+https://github.com/openai/CLIP.git
