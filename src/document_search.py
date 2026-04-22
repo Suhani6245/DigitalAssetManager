@@ -2,19 +2,27 @@ import os
 import fitz
 import docx
 from pptx import Presentation
-from sentence_transformers import SentenceTransformer
+from sentence_transformers import SentenceTransformer, CrossEncoder
 import faiss
 import numpy as np
 import re
 
 # -------- MODEL LOADING -------- #
 _model = None
+_cross_model = None
 
 def get_model():
     global _model
     if _model is None:
-        _model = SentenceTransformer('all-mpnet-base-v2')
+        # 🔥 Better model (you can switch back if needed)
+        _model = SentenceTransformer('BAAI/bge-base-en-v1.5')
     return _model
+
+def get_cross_encoder():
+    global _cross_model
+    if _cross_model is None:
+        _cross_model = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
+    return _cross_model
 
 
 # -------- CLEAN TEXT -------- #
@@ -23,14 +31,14 @@ def clean_text(text):
     return text.strip()
 
 
-# -------- CHUNKING (IMPROVED) -------- #
-def chunk_text(text, chunk_size=120, overlap=40):
-    words = text.split()
+# -------- BETTER CHUNKING (SENTENCE BASED) -------- #
+def chunk_text(text, chunk_size=5, overlap=2):
+    sentences = re.split(r'(?<=[.!?]) +', text)
     chunks = []
 
-    for i in range(0, len(words), chunk_size - overlap):
-        chunk = " ".join(words[i:i + chunk_size])
-        if len(chunk.strip()) > 30:  # ignore tiny chunks
+    for i in range(0, len(sentences), chunk_size - overlap):
+        chunk = " ".join(sentences[i:i + chunk_size])
+        if len(chunk.strip()) > 50:
             chunks.append(chunk)
 
     return chunks
@@ -93,18 +101,21 @@ def load_documents(folder):
 # -------- EMBEDDINGS -------- #
 def create_embeddings(docs):
     model = get_model()
-    embeddings = model.encode(docs)
 
-    embeddings = np.array(embeddings)
-    faiss.normalize_L2(embeddings)  # cosine similarity
+    embeddings = model.encode(
+        docs,
+        convert_to_numpy=True,
+        show_progress_bar=True
+    )
 
+    faiss.normalize_L2(embeddings)
     return embeddings
 
 
 # -------- INDEX -------- #
 def build_index(embeddings):
     dim = embeddings.shape[1]
-    index = faiss.IndexFlatIP(dim)  # cosine similarity
+    index = faiss.IndexFlatIP(dim)
     index.add(embeddings)
     return index
 
@@ -112,21 +123,36 @@ def build_index(embeddings):
 # -------- SEARCH -------- #
 def search(query, docs, names, index, top_k=5):
     model = get_model()
+    cross_encoder = get_cross_encoder()
 
-    query_vec = model.encode([query])
-    query_vec = np.array(query_vec)
+    # 🔥 Add instruction (VERY IMPORTANT for BGE model)
+    query = "Represent this sentence for searching relevant documents: " + query
 
+    # -------- STEP 1: RETRIEVAL -------- #
+    query_vec = model.encode([query], convert_to_numpy=True)
     faiss.normalize_L2(query_vec)
 
-    distances, indices = index.search(query_vec, top_k * 3)  # more candidates
+    distances, indices = index.search(query_vec, top_k * 10)
 
+    candidates = [(names[i], docs[i]) for i in indices[0]]
+
+    # -------- STEP 2: RERANK -------- #
+    pairs = [(query, doc[:300]) for _, doc in candidates]
+
+    scores = cross_encoder.predict(pairs)
+    scores = np.array(scores)
+
+    reranked = list(zip(candidates, scores))
+    reranked.sort(key=lambda x: x[1], reverse=True)
+
+    # -------- REMOVE DUPLICATES -------- #
     results = []
     seen = set()
 
-    for i in indices[0]:
-        if names[i] not in seen:
-            results.append((names[i], docs[i]))
-            seen.add(names[i])
+    for (name, doc), score in reranked:
+        if name not in seen:
+            results.append((name, doc))
+            seen.add(name)
 
         if len(results) >= top_k:
             break
@@ -134,7 +160,7 @@ def search(query, docs, names, index, top_k=5):
     return results
 
 
-# -------- BEST SENTENCE (HIGH ACCURACY) -------- #
+# -------- BEST SENTENCE -------- #
 def get_best_sentence(text, query):
     model = get_model()
 
@@ -146,13 +172,9 @@ def get_best_sentence(text, query):
     if len(sentences) == 1:
         return sentences[0]
 
-    sent_embeddings = model.encode(sentences)
-    query_embedding = model.encode([query])[0]
+    sent_embeddings = model.encode(sentences, convert_to_numpy=True)
+    query_embedding = model.encode([query], convert_to_numpy=True)[0]
 
-    sent_embeddings = np.array(sent_embeddings)
-    query_embedding = np.array(query_embedding)
-
-    # ✅ Normalize for cosine similarity
     faiss.normalize_L2(sent_embeddings)
     faiss.normalize_L2(query_embedding.reshape(1, -1))
 
