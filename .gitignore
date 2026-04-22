@@ -19,12 +19,9 @@ embeddings/*.pkl
 
 # Images  & documents
 
-Images/*
-!Images/sample/
-
 DataSet/*
-!DataSet/sampleDocs/
-
+!DataSet/Documents/sampleDocs/
+!DataSet/Images/sampleImages/
 
 # System Files
 
