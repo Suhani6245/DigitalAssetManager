@@ -42,6 +42,8 @@ CLIP_AI_DAM/
 │   └── image_embeddings.pkl # Auto-generated CLIP embedding cache
 │
 ├── src/
+|   ├──pages
+|      ├──analytics.py       # Presents system & dataset analytics
 │   ├── app.py               # Streamlit application entry point
 │   ├── document_search.py   # Document extraction, chunking, FAISS, reranking
 │   └── encode_images.py     # CLIP image encoding and similarity search
