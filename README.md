@@ -164,6 +164,7 @@ python-pptx        ← PPTX parsing
 
 ![App Screenshot](Output/searchingForDocuments.png)
 
+![Analytics Dashboard](Output/analyticsDashboard.png)
 
 ---
 
