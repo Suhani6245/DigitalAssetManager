@@ -122,7 +122,8 @@ Open [http://localhost:8501](http://localhost:8501) in your browser.
 4. Top-20 candidates are retrieved from FAISS, then reranked by the CrossEncoder.
 5. The best single sentence from the winning chunk is highlighted in the UI.
 
-
+### Flow Diagram
+![App Screenshot](Output/FlowDiagram.png)
 
 ## ⚙️ Tuning
 
@@ -159,11 +160,10 @@ python-pptx        ← PPTX parsing
 
 ## Screenshots
 
+![App Screenshot](Output/searchingImages.png)
 
-```
-[ Screenshot: Search bar with results grid ]
-[ Screenshot: Document card with highlighted sentence ]
-```
+![App Screenshot](Output/searchingForDocuments.png)
+
 
 ---
 
