@@ -22,6 +22,7 @@
 | Image semantic search | CLIP ViT-B/32 |
 | Document parsing | PyMuPDF, python-docx, python-pptx |
 | Document embedding | Sentence Transformers (BAAI/bge-base-en-v1.5) |
+| Search by filename | Toggle for fast substring matching |
 | Fast candidate retrieval | FAISS IndexFlatIP (cosine similarity) |
 | Result reranking | CrossEncoder (ms-marco-MiniLM-L-6-v2) |
 | Best-sentence extraction | Sentence-level cosine similarity |

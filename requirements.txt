@@ -3,4 +3,10 @@ torchvision
 faiss-cpu
 pillow
 tqdm
+streamlit
+numpy
+sentence-transformers
+pymupdf
+python-docx
+python-pptx
 git+https://github.com/openai/CLIP.git

@@ -7,8 +7,14 @@ dependencies:
   - pip
   - numpy
   - pillow
+  - faiss-cpu
   - pip:
       - torch
       - torchvision
       - streamlit
+      - tqdm
+      - sentence-transformers
+      - pymupdf
+      - python-docx
+      - python-pptx
       - git+https://github.com/openai/CLIP.git

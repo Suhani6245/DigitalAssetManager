@@ -175,6 +175,18 @@ def search_images(query, top_k=5):
 
     return sorted(results, key=lambda x: x[1], reverse=True)[:top_k]
 
+def search_images_by_filename(query, top_k=5):
+    query_lower = query.lower()
+    results = []
+    
+    for img_name in image_embeddings.keys():
+        file_name = os.path.basename(img_name)
+        if query_lower in file_name.lower():
+            # Give it a dummy score of 1.0 since it's an exact filename match
+            results.append((img_name, 1.0))
+            
+    return sorted(results, key=lambda x: x[1], reverse=True)[:top_k]
+
 # ---------- DOCUMENT SYSTEM ---------- #
 @st.cache_resource
 def load_doc_system():
@@ -184,6 +196,21 @@ def load_doc_system():
     return docs, names, index
 
 docs, names, index = load_doc_system()
+
+def search_docs_by_filename(query, docs, names, top_k=5):
+    query_lower = query.lower()
+    results = []
+    seen = set()
+    
+    for name, doc in zip(names, docs):
+        if query_lower in name.lower():
+            if name not in seen:
+                results.append((name, doc))
+                seen.add(name)
+            if len(results) >= top_k:
+                break
+                
+    return results
 
 # ---------- SIDEBAR ---------- #
 st.sidebar.title("⚙️ Controls")
@@ -196,6 +223,9 @@ top_k = st.sidebar.slider("Results", 1, 20, 5)
 
 # 3. Filter Type
 filter_type = st.sidebar.radio("Filter", ["All", "Images", "Documents"])
+
+# 4. Search by Filename
+search_by_filename = st.sidebar.checkbox("Search by filename only", value=False)
 
 st.sidebar.markdown("---")
 
@@ -216,7 +246,7 @@ if os.path.exists(pdf_path):
             data=f,
             file_name="AI_DAM_Documentation.pdf",
             mime="application/pdf",
-            use_container_width=True
+            width="stretch"
         )
 else:
     st.sidebar.warning("Documentation file not found.")
@@ -235,11 +265,17 @@ doc_results = []
 
 if filter_type in ["All", "Images"]:
     with st.spinner("Searching images..."):
-        image_results = search_images(query, top_k)
+        if search_by_filename:
+            image_results = search_images_by_filename(query, top_k)
+        else:
+            image_results = search_images(query, top_k)
 
 if filter_type in ["All", "Documents"]:
     with st.spinner("Searching documents..."):
-        doc_results = doc_search(query, docs, names, index, top_k)
+        if search_by_filename:
+            doc_results = search_docs_by_filename(query, docs, names, top_k)
+        else:
+            doc_results = doc_search(query, docs, names, index, top_k)
 
 st.success(f"{len(image_results) + len(doc_results)} results found")
 
@@ -257,7 +293,7 @@ with tab1:
             if os.path.exists(img_path):
                 with cols[i % 3]:
                     st.markdown('<div class="glass">', unsafe_allow_html=True)
-                    st.image(Image.open(img_path), use_container_width=True)
+                    st.image(Image.open(img_path), width="stretch")
                     st.markdown(f"**{file_name}**")
                     st.caption(f"Similarity: {score:.4f}")
                     st.markdown('</div>', unsafe_allow_html=True)
