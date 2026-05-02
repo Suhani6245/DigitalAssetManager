@@ -44,7 +44,7 @@ CLIP_AI_DAM/
 │
 ├── src/
 |   ├──pages
-|      ├──analytics.py       # Presents system & dataset analytics
+|      └── analytics.py       # Presents system & dataset analytics
 │   ├── app.py               # Streamlit application entry point
 │   ├── document_search.py   # Document extraction, chunking, FAISS, reranking
 │   └── encode_images.py     # CLIP image encoding and similarity search
@@ -60,7 +60,7 @@ CLIP_AI_DAM/
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/your-username/CLIP_AI_DAM.git
+git clone [https://github.com/Suhani6245/DigitalAssetManager.git]
 cd CLIP_AI_DAM
 ```
 
