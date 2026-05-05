@@ -5,6 +5,7 @@ import clip
 from PIL import Image
 import os
 import numpy as np
+import time
 
 from src.document_search import (
     load_documents,
@@ -178,13 +179,13 @@ def search_images(query, top_k=5):
 def search_images_by_filename(query, top_k=5):
     query_lower = query.lower()
     results = []
-    
+
     for img_name in image_embeddings.keys():
         file_name = os.path.basename(img_name)
+
         if query_lower in file_name.lower():
-            # Give it a dummy score of 1.0 since it's an exact filename match
             results.append((img_name, 1.0))
-            
+
     return sorted(results, key=lambda x: x[1], reverse=True)[:top_k]
 
 # ---------- DOCUMENT SYSTEM ---------- #
@@ -201,15 +202,16 @@ def search_docs_by_filename(query, docs, names, top_k=5):
     query_lower = query.lower()
     results = []
     seen = set()
-    
+
     for name, doc in zip(names, docs):
         if query_lower in name.lower():
             if name not in seen:
                 results.append((name, doc))
                 seen.add(name)
+
             if len(results) >= top_k:
                 break
-                
+
     return results
 
 # ---------- SIDEBAR ---------- #
@@ -225,13 +227,17 @@ top_k = st.sidebar.slider("Results", 1, 20, 5)
 filter_type = st.sidebar.radio("Filter", ["All", "Images", "Documents"])
 
 # 4. Search by Filename
-search_by_filename = st.sidebar.checkbox("Search by filename only", value=False)
+search_by_filename = st.sidebar.checkbox(
+    "Search by filename only",
+    value=False
+)
 
 st.sidebar.markdown("---")
 
-# 4. Suggestions
-st.sidebar.info("💡 Try:\n- sunset beach\n- AI notes\n- dog running")
-
+# Suggestions
+st.sidebar.info(
+    "💡 Try:\n- sunset beach\n- AI notes\n- dog running"
+)
 
 # ---------- SIDEBAR FOOTER / DOWNLOAD ---------- #
 st.sidebar.markdown("---")
@@ -251,6 +257,7 @@ if os.path.exists(pdf_path):
 else:
     st.sidebar.warning("Documentation file not found.")
 
+# ---------- EMPTY SEARCH ---------- #
 if not query:
     st.markdown("""
     <div class="center">
@@ -258,69 +265,169 @@ if not query:
         <p>Try something like <i>“sunset beach”</i></p>
     </div>
     """, unsafe_allow_html=True)
+
     st.stop()
 
+# ---------- SEARCH EXECUTION ---------- #
 image_results = []
 doc_results = []
 
+img_elapsed = 0
+doc_elapsed = 0
+
+# ---------- IMAGE SEARCH TIMING ---------- #
 if filter_type in ["All", "Images"]:
-    with st.spinner("Searching images..."):
+
+    with st.spinner("Searching images…"):
+
+        start = time.time()
+
         if search_by_filename:
             image_results = search_images_by_filename(query, top_k)
         else:
             image_results = search_images(query, top_k)
 
+        img_elapsed = time.time() - start
+
+# ---------- DOCUMENT SEARCH TIMING ---------- #
 if filter_type in ["All", "Documents"]:
-    with st.spinner("Searching documents..."):
+
+    with st.spinner("Searching & reranking documents…"):
+
+        start = time.time()
+
         if search_by_filename:
-            doc_results = search_docs_by_filename(query, docs, names, top_k)
+            doc_results = search_docs_by_filename(
+                query,
+                docs,
+                names,
+                top_k
+            )
         else:
-            doc_results = doc_search(query, docs, names, index, top_k)
+            doc_results = doc_search(
+                query,
+                docs,
+                names,
+                index,
+                top_k
+            )
 
-st.success(f"{len(image_results) + len(doc_results)} results found")
+        doc_elapsed = time.time() - start
 
+# ---------- SUCCESS MESSAGE ---------- #
+st.success(
+    f"{len(image_results) + len(doc_results)} results found"
+)
+
+# ---------- TABS ---------- #
 tab1, tab2 = st.tabs(["🖼️ Images", "📄 Documents"])
-
-
 
 # ---------- IMAGES ---------- #
 with tab1:
+
+    st.markdown(
+        f"#### 🖼 Image Results &nbsp; `{len(image_results)} found`"
+    )
+
+    st.caption(
+        f"Search completed in {img_elapsed:.2f}s"
+    )
+
     if image_results:
+
         cols = st.columns(3)
+
         for i, (img_key, score) in enumerate(image_results):
+
             file_name = os.path.basename(img_key)
-            img_path = os.path.join("DataSet/Images", file_name)
+            img_path = os.path.join(
+                "DataSet/Images",
+                file_name
+            )
+
             if os.path.exists(img_path):
+
                 with cols[i % 3]:
-                    st.markdown('<div class="glass">', unsafe_allow_html=True)
-                    st.image(Image.open(img_path), width="stretch")
+
+                    st.markdown(
+                        '<div class="glass">',
+                        unsafe_allow_html=True
+                    )
+
+                    st.image(
+                        Image.open(img_path),
+                        width="stretch"
+                    )
+
                     st.markdown(f"**{file_name}**")
-                    st.caption(f"Similarity: {score:.4f}")
-                    st.markdown('</div>', unsafe_allow_html=True)
+
+                    st.caption(
+                        f"Similarity: {score:.4f}"
+                    )
+
+                    st.markdown(
+                        '</div>',
+                        unsafe_allow_html=True
+                    )
+
             else:
-                # Debug message to show exactly what's failing
-                st.error(f"Failed to find: {img_path}")
+                st.error(
+                    f"Failed to find: {img_path}"
+                )
+
     else:
         st.warning("No image results found.")
 
 # ---------- DOCUMENTS ---------- #
 with tab2:
+
+    st.markdown(
+        f"#### 📄 Document Results &nbsp; `{len(doc_results)} found`"
+    )
+
+    st.caption(
+        f"Search completed in {doc_elapsed:.2f}s"
+    )
+
     if doc_results:
+
         for name, preview in doc_results:
-            best_line = get_best_sentence(preview, query)
-            file_path = os.path.join("DataSet/Documents", name)
+
+            best_line = get_best_sentence(
+                preview,
+                query
+            )
+
+            file_path = os.path.join(
+                "DataSet/Documents",
+                name
+            )
+
             with st.expander(f"📄 {name}"):
+
                 st.markdown(f"""
                 <div class="doc-card">
+
                 <b>🔍 Best Match:</b><br>
                 {best_line}
+
                 <br><br>
+
                 <b>📄 Preview:</b><br>
                 {preview[:400]}...
+
                 </div>
                 """, unsafe_allow_html=True)
+
                 if os.path.exists(file_path):
+
                     with open(file_path, "rb") as f:
-                        st.download_button("📂 Open / Download", data=f, file_name=name)
+
+                        st.download_button(
+                            "📂 Open / Download",
+                            data=f,
+                            file_name=name
+                        )
+
     else:
         st.warning("No document results found.")
