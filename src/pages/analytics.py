@@ -112,7 +112,7 @@ with left_col:
     st.subheader("💡 Embedding Insights")
     
     if image_embeddings:
-        all_embeds = np.array(list(image_embeddings.values()))
+        all_embeds = np.array([val["embedding"] for val in image_embeddings.values()])
         mean_val, std_val = np.mean(all_embeds), np.std(all_embeds)
         
         # UI IMPROVEMENT: Using a stylized container for stats
@@ -136,7 +136,7 @@ with right_col:
     
     if len(image_embeddings) > 1:
         # Sample similarities
-        embed_list = list(image_embeddings.values())[:50] 
+        embed_list = [val["embedding"] for val in image_embeddings.values()][:50] 
         scores = []
         
         for i in range(len(embed_list)):

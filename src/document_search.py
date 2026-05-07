@@ -1,4 +1,6 @@
 import os
+os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
+os.environ["TRANSFORMERS_NO_ADVISORY_WARNINGS"] = "1"
 import fitz
 import docx
 from pptx import Presentation
@@ -6,33 +8,34 @@ from sentence_transformers import SentenceTransformer, CrossEncoder
 import faiss
 import numpy as np
 import re
+from typing import List, Tuple
 
-# -------- MODEL LOADING -------- #
+# ==============================
+# MODEL MANAGEMENT (CACHED)
+# ==============================
 _model = None
 _cross_model = None
 
 def get_model():
     global _model
     if _model is None:
-        # 🔥 Better model (you can switch back if needed)
-        _model = SentenceTransformer('BAAI/bge-base-en-v1.5')
+        _model = SentenceTransformer("BAAI/bge-base-en-v1.5")
     return _model
 
 def get_cross_encoder():
     global _cross_model
     if _cross_model is None:
-        _cross_model = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
+        _cross_model = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
     return _cross_model
 
 
-# -------- CLEAN TEXT -------- #
-def clean_text(text):
-    text = re.sub(r'\s+', ' ', text)
-    return text.strip()
+# ==============================
+# TEXT CLEANING & CHUNKING
+# ==============================
+def clean_text(text: str) -> str:
+    return re.sub(r"\s+", " ", text).strip()
 
-
-# -------- BETTER CHUNKING (SENTENCE BASED) -------- #
-def chunk_text(text, chunk_size=5, overlap=2):
+def chunk_text(text: str, chunk_size=5, overlap=2) -> List[str]:
     sentences = re.split(r'(?<=[.!?]) +', text)
     chunks = []
 
@@ -44,114 +47,131 @@ def chunk_text(text, chunk_size=5, overlap=2):
     return chunks
 
 
-# -------- TEXT EXTRACTION -------- #
+# ==============================
+# DOCUMENT EXTRACTION
+# ==============================
 def extract_pdf(path):
-    doc = fitz.open(path)
-    text = ""
-    for page in doc:
-        text += page.get_text()
-    return clean_text(text)
-
+    try:
+        doc = fitz.open(path)
+        return clean_text(" ".join([p.get_text() for p in doc]))
+    except:
+        return ""
 
 def extract_docx(path):
-    doc = docx.Document(path)
-    text = "\n".join([p.text for p in doc.paragraphs])
-    return clean_text(text)
-
+    try:
+        doc = docx.Document(path)
+        return clean_text("\n".join([p.text for p in doc.paragraphs]))
+    except:
+        return ""
 
 def extract_pptx(path):
-    prs = Presentation(path)
-    text = ""
-    for slide in prs.slides:
-        for shape in slide.shapes:
-            if hasattr(shape, "text"):
-                text += shape.text + "\n"
-    return clean_text(text)
+    try:
+        prs = Presentation(path)
+        text = []
+        for slide in prs.slides:
+            for shape in slide.shapes:
+                if hasattr(shape, "text"):
+                    text.append(shape.text)
+        return clean_text("\n".join(text))
+    except:
+        return ""
 
 
-# -------- LOAD DOCUMENTS -------- #
-def load_documents(folder):
-    docs = []
-    names = []
+# ==============================
+# LOAD DOCUMENTS
+# ==============================
+def load_documents(folder: str) -> Tuple[List[str], List[str]]:
+    docs, names = [], []
 
     for file in os.listdir(folder):
         path = os.path.join(folder, file)
 
         if file.endswith(".pdf"):
             text = extract_pdf(path)
-
         elif file.endswith(".docx"):
             text = extract_docx(path)
-
         elif file.endswith(".pptx"):
             text = extract_pptx(path)
-
         else:
             continue
 
-        chunks = chunk_text(text)
+        if not text:
+            continue
 
-        for chunk in chunks:
+        for chunk in chunk_text(text):
             docs.append(chunk)
             names.append(file)
 
     return docs, names
 
 
-# -------- EMBEDDINGS -------- #
-def create_embeddings(docs):
+# ==============================
+# EMBEDDINGS (BATCHED)
+# ==============================
+def create_embeddings(texts: List[str]) -> np.ndarray:
     model = get_model()
 
     embeddings = model.encode(
-        docs,
+        texts,
+        batch_size=64,               # 🔥 batched for speed
         convert_to_numpy=True,
-        show_progress_bar=True
+        show_progress_bar=False
     )
 
     faiss.normalize_L2(embeddings)
     return embeddings
 
 
-# -------- INDEX -------- #
-def build_index(embeddings):
+# ==============================
+# FAISS INDEX
+# ==============================
+def build_index(embeddings: np.ndarray):
     dim = embeddings.shape[1]
+
+    # 🔥 scalable index (switch to IVF later easily)
     index = faiss.IndexFlatIP(dim)
     index.add(embeddings)
+
     return index
 
 
-# -------- SEARCH -------- #
+# ==============================
+# UNIFIED SEARCH (DOC + IMAGE CAPTIONS)
+# ==============================
 def search(query, docs, names, index, top_k=5):
     model = get_model()
-    cross_encoder = get_cross_encoder()
+    cross = get_cross_encoder()
 
-    # 🔥 Add instruction (VERY IMPORTANT for BGE model)
     query = "Represent this sentence for searching relevant documents: " + query
 
-    # -------- STEP 1: RETRIEVAL -------- #
-    query_vec = model.encode([query], convert_to_numpy=True)
-    faiss.normalize_L2(query_vec)
+    # -------- RETRIEVAL -------- #
+    q_vec = model.encode([query], convert_to_numpy=True)
+    faiss.normalize_L2(q_vec)
 
-    distances, indices = index.search(query_vec, top_k * 10)
+    scores, indices = index.search(q_vec, top_k * 10)
 
-    candidates = [(names[i], docs[i]) for i in indices[0]]
+    candidates = [
+        (names[i], docs[i],
+         "image" if names[i].lower().endswith((".jpg", ".png", ".jpeg")) else "doc")
+        for i in indices[0] if i != -1
+    ]
 
-    # -------- STEP 2: RERANK -------- #
-    pairs = [(query, doc[:300]) for _, doc in candidates]
+    # -------- RERANK -------- #
+    pairs = [(query, doc[:300]) for _, doc, _ in candidates]
+    rerank_scores = cross.predict(pairs)
 
-    scores = cross_encoder.predict(pairs)
-    scores = np.array(scores)
+    ranked = sorted(
+        zip(candidates, rerank_scores),
+        key=lambda x: x[1],
+        reverse=True
+    )
 
-    reranked = list(zip(candidates, scores))
-    reranked.sort(key=lambda x: x[1], reverse=True)
+    # -------- DEDUP -------- #
+    results, seen = [], set()
 
-    # -------- REMOVE DUPLICATES -------- #
-    results = []
-    seen = set()
-
-    for (name, doc), score in reranked:
+    for (name, doc, source), score in ranked:
         if name not in seen:
-            results.append((name, doc))
+            results.append((name, doc, source, float(score)))
             seen.add(name)
 
         if len(results) >= top_k:
@@ -160,25 +180,21 @@ def search(query, docs, names, index, top_k=5):
     return results
 
 
-# -------- BEST SENTENCE -------- #
+# ==============================
+# BEST SENTENCE EXTRACTION
+# ==============================
 def get_best_sentence(text, query):
     model = get_model()
 
     sentences = re.split(r'(?<=[.!?]) +', text)
-
-    if not sentences:
+    if len(sentences) <= 1:
         return text
 
-    if len(sentences) == 1:
-        return sentences[0]
+    sent_emb = model.encode(sentences, convert_to_numpy=True)
+    query_emb = model.encode([query], convert_to_numpy=True)
 
-    sent_embeddings = model.encode(sentences, convert_to_numpy=True)
-    query_embedding = model.encode([query], convert_to_numpy=True)[0]
+    faiss.normalize_L2(sent_emb)
+    faiss.normalize_L2(query_emb)
 
-    faiss.normalize_L2(sent_embeddings)
-    faiss.normalize_L2(query_embedding.reshape(1, -1))
-
-    scores = np.dot(sent_embeddings, query_embedding)
-
-    best_idx = np.argmax(scores)
-    return sentences[best_idx]
+    scores = np.dot(sent_emb, query_emb.T).squeeze()
+    return sentences[np.argmax(scores)]
